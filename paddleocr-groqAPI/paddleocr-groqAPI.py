@@ -1,224 +1,147 @@
 import os
-import json
 import re
+import json
+from pdf2image import convert_from_path
 from paddleocr import PPStructureV3
 from groq import Groq
+from dotenv import load_dotenv
 
+load_dotenv()
 
-# ------------------------------
-# 1. OCR Extraction
-# ------------------------------
-def run_ocr(image_path, output_dir="output"):
-    print("📄 Running PaddleOCR on:", image_path)
-    pipeline = PPStructureV3(use_doc_orientation_classify=False, use_doc_unwarping=False)
+# ---------------- PDF → Images ----------------
+def convert_pdf_to_images(pdf_path, output_dir="output/pdf_pages"):
+    os.makedirs(output_dir, exist_ok=True)
+    pages = convert_from_path(pdf_path, dpi=300)
+    image_paths = []
+    for i, page in enumerate(pages):
+        img_path = os.path.join(output_dir, f"page_{i+1}.jpg")
+        page.save(img_path, "JPEG")
+        image_paths.append(img_path)
+    return image_paths
 
-    file_name_no_ext = os.path.splitext(os.path.basename(image_path))[0]
-    output = pipeline.predict(input=image_path)
+# ---------------- OCR ----------------
+def run_ocr(file_path, output_dir="output"):
+    print(f"📄 Running OCR on: {file_path}")
 
-    for res in output:
-        res.save_to_json(save_path=output_dir)
-
-    ocr_json_path = f"{output_dir}/{file_name_no_ext}_res.json"
-    with open(ocr_json_path, "r", encoding="utf-8") as f:
-        ocr_data = json.load(f)
-
-    cleaned_ocr = []
-    if isinstance(ocr_data, dict) and "parsing_res_list" in ocr_data:
-        src_list = ocr_data["parsing_res_list"]
-    elif isinstance(ocr_data, list) and ocr_data and "parsing_res_list" in ocr_data[0]:
-        src_list = ocr_data[0]["parsing_res_list"]
+    if file_path.lower().endswith(".pdf"):
+        image_paths = convert_pdf_to_images(file_path)
     else:
-        src_list = []
+        image_paths = [file_path]
 
-    for item in src_list:
-        label = item.get("block_label", "").strip()
-        content = item.get("block_content", "").strip()
-        if content:
-            cleaned_ocr.append({"label": label, "content": content})
+    pipeline = PPStructureV3(use_doc_orientation_classify=False, use_doc_unwarping=False)
+    all_text = []
 
-    print("📝 Cleaned OCR Output:", json.dumps(cleaned_ocr, indent=2, ensure_ascii=False))
-    return cleaned_ocr
+    for img_path in image_paths:
+        file_name_no_ext = os.path.splitext(os.path.basename(img_path))[0]
+        output = pipeline.predict(input=img_path)
 
+        for res in output:
+            res.save_to_json(save_path=output_dir)
 
-# ------------------------------
-# 2. OCR Noise Cleaning
-# ------------------------------
-def clean_ocr_noise(ocr_json):
-    """
-    Removes duplicates, numbers, headers/footers, and irrelevant noise
-    from OCR JSON output before flattening.
-    """
+        json_path = os.path.join(output_dir, f"{file_name_no_ext}_res.json")
+        if os.path.exists(json_path):
+            with open(json_path, "r", encoding="utf-8") as f:
+                ocr_data = json.load(f)
+
+            if isinstance(ocr_data, dict) and "parsing_res_list" in ocr_data:
+                src_list = ocr_data["parsing_res_list"]
+            elif isinstance(ocr_data, list) and ocr_data and "parsing_res_list" in ocr_data[0]:
+                src_list = ocr_data[0]["parsing_res_list"]
+            else:
+                src_list = []
+
+            for item in src_list:
+                content = item.get("block_content", "").strip()
+                if content:
+                    all_text.append(content)
+
+    return "\n".join(all_text)
+
+# ---------------- Clean OCR Text ----------------
+def preprocess_ocr_text(ocr_text):
+    lines = ocr_text.split("\n")
     seen = set()
     filtered = []
-
-    for item in ocr_json:
-        text = item["content"].strip()
-
-        # Skip empty lines
-        if not text:
+    for line in lines:
+        clean_line = line.strip()
+        if not clean_line or clean_line in seen or clean_line.isdigit():
             continue
+        seen.add(clean_line)
+        filtered.append(clean_line)
+    return "\n".join(filtered)
 
-        # Remove duplicates
-        if text in seen:
-            continue
-        seen.add(text)
-
-        # Skip pure numbers (page numbers, indexes)
-        if text.isdigit():
-            continue
-
-        # Skip repeated "total amount" lines
-        if re.search(r"total amount", text, re.I):
-            continue
-
-        # Skip placeholders or repeated headers
-        if re.search(r"invoice insights|page \d+|thank you", text, re.I):
-            continue
-
-        filtered.append({"label": item["label"], "content": text})
-
-    print("🧹 Cleaned OCR Noise Output:", json.dumps(filtered, indent=2, ensure_ascii=False))
-    return filtered
-
-
-# ------------------------------
-# 3. Flatten OCR Text
-# ------------------------------
-def flatten_ocr_text(ocr_json):
-    flat_text_lines = []
-    for idx, item in enumerate(ocr_json, start=1):
-        line = f"text{idx}: {item['content']}"
-        flat_text_lines.append(line)
-    flat_text = "\n".join(flat_text_lines)
-    print("\n🧾 Structured Flattened OCR Text:\n", flat_text)
-    return flat_text
-
-
-# ------------------------------
-# 4. Rule-Based Fallback
-# ------------------------------
-def rule_based_extraction(ocr_json):
-    print("⚠️ Using Rule-Based Extraction Fallback...")
-    flat_text = " ".join([item["content"] for item in ocr_json]).lower()
-
-    result = {
-        "vendor_name": "",
-        "customer_name": "",
-        "invoice_number": "",
-        "invoice_date": "",
-        "due_date": "",
-        "total_amount": "",
-        "tax_amount": "",
-        "payment_terms": "",
-        "items_summary": "",
-        "possible_risks": "",
-        "recommendations": ""
-    }
-
-    # Simple regex-based extraction
-    inv_match = re.search(r"(invoice\s*no\.?|no\.)\s*[:\-]?\s*([A-Za-z0-9\-]+)", flat_text)
-    if inv_match:
-        result["invoice_number"] = inv_match.group(2)
-
-    date_match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", flat_text)
-    if date_match:
-        result["invoice_date"] = date_match.group(1)
-
-    vendor_match = re.search(r"(inc\.|ltd|corp)", flat_text)
-    if vendor_match:
-        result["vendor_name"] = vendor_match.group(0)
-
-    bank_match = re.search(r"bankname[:\s]+([A-Za-z\s]+)", flat_text)
-    if bank_match:
-        result["payment_terms"] = bank_match.group(1)
-
-    return result
-
-
-# ------------------------------
-# 5. Call Groq API for LLM Extraction
-# ------------------------------
-def get_invoice_insights_groq(flat_text):
-    client = Groq(api_key="")
-
-    schema = {
-        "vendor_name": "",
-        "customer_name": "",
-        "invoice_number": "",
-        "invoice_date": "",
-        "due_date": "",
-        "total_amount": "",
-        "tax_amount": "",
-        "payment_terms": "",
-        "items_summary": "",
-        "possible_risks": "",
-        "recommendations": ""
-    }
+# ---------------- Groq Call ----------------
+def get_invoice_insights_groq(clean_text):
+    client = Groq(api_key=os.getenv('groq_api_key'))
 
     prompt = f"""
-You are an AI that extracts structured insights from OCR invoice data.
+Extract structured invoice details from the following OCR text.
 
-Given the following OCR text:
-{flat_text}
+OCR TEXT:
+{clean_text}
 
-Extract it into this JSON format:
-{json.dumps(schema, indent=2)}
-
-Rules:
-- Fill in as much info as possible
-- Leave blank if not found
-- Only output valid JSON
-"""
-
-    print("\n📢 Sending prompt to Groq API...\n")
+Return only a valid JSON object.
+No explanations. No extra text.
+Do not repeat the question or OCR text.
+Only output JSON.
+""".strip()
 
     chat_completion = client.chat.completions.create(
         model="deepseek-r1-distill-llama-70b",
         messages=[
-            {"role": "system", "content": "You are a precise JSON extraction assistant."},
+            {"role": "system", "content": "You only output valid JSON."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.0,
-        max_tokens=1024
+        max_tokens=2048
     )
 
-    response = chat_completion.choices[0].message.content
-    print("\n🤖 Groq Raw Response:\n", response)
+    return chat_completion.choices[0].message.content.strip()
 
+# ---------------- JSON Extraction ----------------
+def extract_json_from_response(response, raw_path="output/raw_groq.json"):
+    # Remove <think> blocks if present
+    response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
+    # Find JSON part
+    match = re.search(r"\{[\s\S]*\}", response)
+    json_text = match.group(0).strip() if match else "{}"
+
+    # Save raw JSON to debug
+    with open(raw_path, "w", encoding="utf-8") as f:
+        f.write(json_text)
+
+    # Try parse
     try:
-        return json.loads(response)
+        return json.loads(json_text)
     except json.JSONDecodeError:
-        print("❌ Groq returned invalid JSON — falling back to rules.")
-        return None
+        print("⚠️ JSON invalid, saving raw text.")
+        return json_text  # Keep raw text if invalid
 
-
-# ------------------------------
-# 6. Main Pipeline
-# ------------------------------
+# ---------------- Main ----------------
 if __name__ == "__main__":
-    IMAGE_PATH = "image-62.png"
+    FILE_PATH = "MongoDB Atlas Invoice - 2025-07-01 - ConfirmU.pdf"
     OUTPUT_JSON = "output/invoice_insights.json"
-
     os.makedirs("output", exist_ok=True)
 
     # Step 1: OCR
-    raw_ocr = run_ocr(IMAGE_PATH)
+    raw_text = run_ocr(FILE_PATH)
 
-    # Step 2: Clean OCR noise
-    cleaned_ocr = clean_ocr_noise(raw_ocr)
+    # Step 2: Clean text
+    clean_text = preprocess_ocr_text(raw_text)
 
-    # Step 3: Flatten OCR for LLM
-    flat_text = flatten_ocr_text(cleaned_ocr)
+    # Step 3: Groq extraction
+    groq_output = get_invoice_insights_groq(clean_text)
 
-    # Step 4: Groq LLM extraction
-    insights = get_invoice_insights_groq(flat_text)
+    # Step 4: Extract & Save JSON
+    extracted_data = extract_json_from_response(groq_output)
 
-    # Step 5: Fallback to rules if LLM fails
-    if insights is None:
-        insights = rule_based_extraction(cleaned_ocr)
-
-    # Step 6: Save results
+    # Save final structured insights
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-        json.dump(insights, f, indent=2, ensure_ascii=False)
+        if isinstance(extracted_data, dict):
+            json.dump(extracted_data, f, indent=2, ensure_ascii=False)
+        else:
+            f.write(extracted_data)  # If raw string
 
-    print(f"\n✅ Invoice insights saved to {OUTPUT_JSON}")
+    print(f"✅ Final structured invoice data saved to {OUTPUT_JSON}")
+    print(f"📝 Raw Groq JSON saved to output/raw_groq.json")

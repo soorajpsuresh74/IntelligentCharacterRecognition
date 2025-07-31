@@ -1,0 +1,89 @@
+{
+  "invoice_number": "683bbc860ec6296adab8534b",
+  "billing_period": {
+    "start_date": "2025-06-01",
+    "end_date": "2025-07-01"
+  },
+  "amount_due": 389.39,
+  "company": {
+    "name": "MongoDB Limited",
+    "address": "Building Two, Number One Ballsbridge, Ballsbridge, Dublin 4, Ireland",
+    "vat_id": "M90373258G"
+  },
+  "organization": {
+    "name": "ConfirmU",
+    "address": "2 Kallang Avenue, Singapore, Singapore 33907"
+  },
+  "summary_by_project": [
+    {
+      "project_id": "ConfirmU-DEV-5f7d6568b103e1037234b158",
+      "amount": 0.0
+    },
+    {
+      "project_id": "ConfirmU-Prod-5fa3adedcf00831fd35cb8d3",
+      "amount": 389.39
+    }
+  ],
+  "summary_by_service": [
+    {
+      "service": "Clusters Atlas M20I",
+      "details": [
+        {
+          "type": "Instance - AWS",
+          "usage": 39,
+          "unit": "server hours",
+          "rate": 0.067,
+          "amount": 2.6
+        },
+        {
+          "type": "Instance - AWS",
+          "usage": 2121,
+          "unit": "server hours",
+          "rate": 0.168,
+          "amount": 356.39
+        }
+      ]
+    },
+    {
+      "service": "Atlas M30 Backup",
+      "details": [
+        {
+          "type": "Atlas Continuous Cloud Backup Storage - AWS",
+          "usage": 798.549,
+          "unit": "GB days",
+          "rate": 0.034521,
+          "amount": 27.58
+        }
+      ]
+    },
+    {
+      "service": "Data Transfer",
+      "details": [
+        {
+          "type": "Atlas AWS Data Transfer (Same Region)",
+          "usage": 142.16,
+          "unit": "GB",
+          "rate": 0.01,
+          "amount": 1.41
+        },
+        {
+          "type": "Atlas AWS Data Transfer (Different Region)",
+          "usage": 16.56,
+          "unit": "GB",
+          "rate": 0.086,
+          "amount": 1.41
+        }
+      ]
+    }
+  ],
+  "subtotal": 389.39,
+  "status": "PAID",
+  "payment_details": {
+    "date": "2025-07-01",
+    "subtotal": 389.39,
+    "value_added_tax": 35.05,
+    "credits": 0.0,
+    "total": 424.44
+  },
+  "invoice_link": "https://cloud.mongodb.com/v2#/org/5f7d6568b103e1037234b151/billing/invoice/683bbc860ec6296adab8534b"
+}

@@ -1,0 +1,25 @@
+{
+  "Invoice Number": "683bbc860ec6296adab8534b",
+  "Organization": "ConfirmU 2 Kallang Avenue",
+  "Billing Period": "June 1, 2025 - July 1, 2025",
+  "Amount Due": "$389.39",
+  "Summary By Project": {
+    "ConfirmU-DEV-5f7d6568b103e1037234b158": "$389.39",
+    "ConfirmU-Prod - 5fa3adedcf00831fd35cb8d3": "$389.39"
+  },
+  "Summary By Service": {
+    "Clusters Atlas M20I": "$356.39",
+    "Atlas M30 Backup": "$27.58",
+    "Data Transfer": {
+      "Atlas AWS Data Transfer (Same Region)": "$1.41",
+      "Atlas AWS Data Transfer (Different Region)": "$1.41"
+    }
+  },
+  "Total Usage": "$389.39",
+  "Payments": {
+    "Date": "July 1, 2025",
+    "Subtotal": "$389.39",
+    "Value-Added Tax Credits": "$35.05",
+    "Total": "$424.44"
+  }
+}
